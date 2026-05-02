@@ -29,9 +29,9 @@
                 --pad: 15px;
                 --radius: 14px;
                 --progress-height: 4px;
-                --upnext-height: 36px;
-                --upnext-gap: 8px;
-                --upnext-thumb-size: 28px;
+                --upnext-height: 52px;
+                --upnext-gap: 10px;
+                --upnext-thumb-size: 38px;
 
                 /* Colors */
                 --text: #ffffff;
@@ -294,20 +294,16 @@
 
             /* ============ UP NEXT mini-bar ============ */
             .upnext {
+                position: relative;
                 width: 100%;
                 height: var(--upnext-height);
                 margin-top: var(--upnext-gap);
-                border-radius: 10px;
-                background: rgba(0, 0, 0, 0.55);
-                backdrop-filter: blur(20px) saturate(1.4);
-                -webkit-backdrop-filter: blur(20px) saturate(1.4);
+                border-radius: var(--radius);
+                overflow: hidden;
                 box-shadow:
-                    0 8px 22px rgba(0, 0, 0, 0.45),
+                    0 14px 32px rgba(0, 0, 0, 0.5),
+                    0 3px 8px rgba(0, 0, 0, 0.32),
                     inset 0 0 0 1px rgba(255, 255, 255, 0.06);
-                display: flex;
-                align-items: center;
-                gap: 10px;
-                padding: 0 14px 0 4px;
                 opacity: 0;
                 transform: translateY(-4px);
                 transition:
@@ -320,35 +316,69 @@
                 transform: translateY(0);
             }
 
+            /* Blurred album art behind up-next, same approach as main bar */
+            .upnext-bg {
+                position: absolute;
+                inset: -30px;
+                background-size: cover;
+                background-position: center;
+                filter: blur(24px) saturate(1.4) brightness(0.75);
+                transform: scale(1.15);
+                transition: background-image 600ms ease;
+                will-change: background-image;
+            }
+
+            .upnext-tint {
+                position: absolute;
+                inset: 0;
+                background:
+                    linear-gradient(
+                        90deg,
+                        rgba(0, 0, 0, 0.6) 0%,
+                        rgba(0, 0, 0, 0.4) 40%,
+                        rgba(0, 0, 0, 0.5) 100%
+                    ),
+                    var(--bar-tint);
+            }
+
+            .upnext-content {
+                position: relative;
+                height: 100%;
+                display: flex;
+                align-items: center;
+                gap: 12px;
+                padding: 0 16px 0 7px;
+            }
+
             .upnext-thumb {
                 width: var(--upnext-thumb-size);
                 height: var(--upnext-thumb-size);
-                border-radius: 5px;
+                border-radius: 6px;
                 background-size: cover;
                 background-position: center;
                 background-color: rgba(255, 255, 255, 0.06);
                 flex-shrink: 0;
-                margin-left: 4px;
                 box-shadow:
-                    0 2px 6px rgba(0, 0, 0, 0.4),
+                    0 3px 8px rgba(0, 0, 0, 0.45),
                     inset 0 0 0 1px rgba(255, 255, 255, 0.08);
             }
 
             .upnext-label {
                 font-family: "Inter", sans-serif;
-                font-size: 9px;
+                font-size: 10px;
                 font-weight: 700;
                 letter-spacing: 0.22em;
                 text-transform: uppercase;
-                color: rgba(255, 255, 255, 0.55);
+                color: rgba(255, 255, 255, 0.6);
                 flex-shrink: 0;
+                text-shadow: 0 1px 3px rgba(0, 0, 0, 0.5);
             }
 
             .upnext-info {
                 flex: 1;
                 min-width: 0;
                 font-family: "Inter", sans-serif;
-                font-size: 12px;
+                font-size: 13px;
                 color: var(--text-dim);
                 white-space: nowrap;
                 overflow: hidden;
@@ -360,7 +390,7 @@
                 font-weight: 600;
             }
             .upnext-info .upnext-sep {
-                margin: 0 6px;
+                margin: 0 7px;
                 opacity: 0.4;
             }
 
@@ -414,12 +444,16 @@
             </div>
 
             <div class="upnext" id="upnext">
-                <div class="upnext-thumb" id="upnext-thumb"></div>
-                <div class="upnext-label">Up Next</div>
-                <div class="upnext-info">
-                    <span class="upnext-title" id="upnext-title">—</span>
-                    <span class="upnext-sep">·</span>
-                    <span class="upnext-artist" id="upnext-artist">—</span>
+                <div class="upnext-bg" id="upnext-bg"></div>
+                <div class="upnext-tint"></div>
+                <div class="upnext-content">
+                    <div class="upnext-thumb" id="upnext-thumb"></div>
+                    <div class="upnext-label">Up Next</div>
+                    <div class="upnext-info">
+                        <span class="upnext-title" id="upnext-title">—</span>
+                        <span class="upnext-sep">·</span>
+                        <span class="upnext-artist" id="upnext-artist">—</span>
+                    </div>
                 </div>
             </div>
         </div>
@@ -441,6 +475,7 @@
                 const progressEl = document.getElementById("progress");
                 const statusEl = document.getElementById("status-label");
                 const upnextEl = document.getElementById("upnext");
+                const upnextBgEl = document.getElementById("upnext-bg");
                 const upnextThumbEl = document.getElementById("upnext-thumb");
                 const upnextTitleEl = document.getElementById("upnext-title");
                 const upnextArtistEl = document.getElementById("upnext-artist");
@@ -515,16 +550,17 @@
                         upnextEl.classList.remove("show");
                         return;
                     }
-                    // Queue items may be wrapped: {attributes: {...}} (MusicKit shape)
                     const t = track.attributes || track;
                     const artUrl = resolveArtworkUrl(
                         t.artwork && t.artwork.url,
-                        200,
+                        ART_SIZE,
                     );
                     if (artUrl) {
                         upnextThumbEl.style.backgroundImage = `url("${artUrl}")`;
+                        upnextBgEl.style.backgroundImage = `url("${artUrl}")`;
                     } else {
                         upnextThumbEl.style.backgroundImage = "";
+                        upnextBgEl.style.backgroundImage = "";
                     }
                     upnextTitleEl.textContent = t.name || t.title || "—";
                     upnextArtistEl.textContent =
