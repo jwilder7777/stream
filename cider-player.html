@@ -72,8 +72,9 @@
                 /* slide-in from below center, then settle at center */
                 transform: translate(-50%, calc(-50% + 60px));
                 opacity: 0;
+                /* Slight overshoot — bar settles instead of just decelerating */
                 transition:
-                    transform 600ms cubic-bezier(0.22, 1, 0.36, 1),
+                    transform 700ms cubic-bezier(0.16, 1.2, 0.3, 1),
                     opacity 400ms ease;
             }
             .stage.visible {
@@ -161,10 +162,14 @@
                 height: 100%;
                 object-fit: cover;
                 display: block;
-                transition: opacity 400ms ease;
+                transition:
+                    opacity 280ms cubic-bezier(0.22, 1, 0.36, 1),
+                    transform 280ms cubic-bezier(0.22, 1, 0.36, 1);
             }
-            .art.swap {
+            .art.swap-out,
+            .art.swap-in {
                 opacity: 0;
+                transform: scale(0.94);
             }
 
             /* Track info column */
@@ -247,11 +252,18 @@
                 white-space: nowrap;
                 overflow: hidden;
                 text-overflow: ellipsis;
-                transition: opacity 400ms ease;
+                transition:
+                    opacity 280ms cubic-bezier(0.22, 1, 0.36, 1),
+                    transform 280ms cubic-bezier(0.22, 1, 0.36, 1);
                 letter-spacing: -0.01em;
             }
-            .title.swap {
+            .title.swap-out {
                 opacity: 0;
+                transform: translateY(-8px);
+            }
+            .title.swap-in {
+                opacity: 0;
+                transform: translateY(8px);
             }
 
             .artist {
@@ -264,10 +276,22 @@
                 white-space: nowrap;
                 overflow: hidden;
                 text-overflow: ellipsis;
-                transition: opacity 400ms ease;
+                transition:
+                    opacity 280ms cubic-bezier(0.22, 1, 0.36, 1),
+                    transform 280ms cubic-bezier(0.22, 1, 0.36, 1);
             }
-            .artist.swap {
+            .artist.swap-out {
                 opacity: 0;
+                transform: translateY(-8px);
+            }
+            .artist.swap-in {
+                opacity: 0;
+                transform: translateY(8px);
+            }
+
+            /* Used to snap an element to a new position without animating */
+            .no-anim {
+                transition: none !important;
             }
 
             /* Progress bar pinned to bottom, full width of bar */
@@ -360,6 +384,14 @@
                 box-shadow:
                     0 3px 8px rgba(0, 0, 0, 0.45),
                     inset 0 0 0 1px rgba(255, 255, 255, 0.08);
+                transition:
+                    opacity 280ms cubic-bezier(0.22, 1, 0.36, 1),
+                    transform 280ms cubic-bezier(0.22, 1, 0.36, 1);
+            }
+            .upnext-thumb.swap-out,
+            .upnext-thumb.swap-in {
+                opacity: 0;
+                transform: scale(0.9);
             }
 
             .upnext-label {
@@ -383,6 +415,17 @@
                 overflow: hidden;
                 text-overflow: ellipsis;
                 text-shadow: 0 1px 3px rgba(0, 0, 0, 0.5);
+                transition:
+                    opacity 280ms cubic-bezier(0.22, 1, 0.36, 1),
+                    transform 280ms cubic-bezier(0.22, 1, 0.36, 1);
+            }
+            .upnext-info.swap-out {
+                opacity: 0;
+                transform: translateY(-6px);
+            }
+            .upnext-info.swap-in {
+                opacity: 0;
+                transform: translateY(6px);
             }
             .upnext-info .upnext-title {
                 color: var(--text);
@@ -476,10 +519,32 @@
                 const upnextEl = document.getElementById("upnext");
                 const upnextBgEl = document.getElementById("upnext-bg");
                 const upnextThumbEl = document.getElementById("upnext-thumb");
+                const upnextInfoEl = document.querySelector(".upnext-info");
                 const upnextTitleEl = document.getElementById("upnext-title");
                 const upnextArtistEl = document.getElementById("upnext-artist");
 
                 let lastSongId = null;
+                let lastUpNextId = null;
+
+                // Slide-out → snap-to-incoming-position → slide-in.
+                // Triggered with a startDelay so callers can stagger elements.
+                function transitionSwap(el, startDelay, applyContent) {
+                    setTimeout(() => {
+                        el.classList.add("swap-out");
+                        setTimeout(() => {
+                            applyContent();
+                            // Snap to "incoming start" without animating
+                            el.classList.add("no-anim");
+                            el.classList.remove("swap-out");
+                            el.classList.add("swap-in");
+                            void el.offsetHeight; // force reflow
+                            el.classList.remove("no-anim");
+                            requestAnimationFrame(() => {
+                                el.classList.remove("swap-in");
+                            });
+                        }, 280);
+                    }, startDelay);
+                }
 
                 function formatTime(sec) {
                     if (!isFinite(sec) || sec < 0) sec = 0;
@@ -516,30 +581,36 @@
                         showStage();
                         return;
                     }
+                    const isFirstShow = lastSongId === null;
                     lastSongId = songId;
 
-                    art.classList.add("swap");
-                    titleEl.classList.add("swap");
-                    artistEl.classList.add("swap");
+                    const artUrl = resolveArtworkUrl(
+                        info.artwork && info.artwork.url,
+                        ART_SIZE,
+                    );
 
-                    setTimeout(() => {
-                        const artUrl = resolveArtworkUrl(
-                            info.artwork && info.artwork.url,
-                            ART_SIZE,
-                        );
+                    const setArt = () => {
                         if (artUrl) {
                             art.src = artUrl;
                             bg.style.backgroundImage = `url("${artUrl}")`;
                         }
+                    };
+
+                    if (isFirstShow) {
+                        // No animation needed on first load — just populate
+                        setArt();
                         titleEl.textContent = info.name || "—";
                         artistEl.textContent = info.artistName || "—";
-
-                        requestAnimationFrame(() => {
-                            art.classList.remove("swap");
-                            titleEl.classList.remove("swap");
-                            artistEl.classList.remove("swap");
+                    } else {
+                        // Choreographed swap: art → title → artist (70ms stagger)
+                        transitionSwap(art, 0, setArt);
+                        transitionSwap(titleEl, 70, () => {
+                            titleEl.textContent = info.name || "—";
                         });
-                    }, 350);
+                        transitionSwap(artistEl, 140, () => {
+                            artistEl.textContent = info.artistName || "—";
+                        });
+                    }
 
                     showStage();
                 }
@@ -547,24 +618,62 @@
                 function applyUpNext(track) {
                     if (!track) {
                         upnextEl.classList.remove("show");
+                        lastUpNextId = null;
                         return;
                     }
                     const t = track.attributes || track;
-                    const artUrl = resolveArtworkUrl(
-                        t.artwork && t.artwork.url,
-                        ART_SIZE,
-                    );
-                    if (artUrl) {
-                        upnextThumbEl.style.backgroundImage = `url("${artUrl}")`;
-                        upnextBgEl.style.backgroundImage = `url("${artUrl}")`;
-                    } else {
-                        upnextThumbEl.style.backgroundImage = "";
-                        upnextBgEl.style.backgroundImage = "";
+                    const id =
+                        (t.playParams && t.playParams.id) ||
+                        track.id ||
+                        `${t.name}|${t.artistName}`;
+
+                    const setContent = () => {
+                        const artUrl = resolveArtworkUrl(
+                            t.artwork && t.artwork.url,
+                            ART_SIZE,
+                        );
+                        if (artUrl) {
+                            upnextThumbEl.style.backgroundImage = `url("${artUrl}")`;
+                            upnextBgEl.style.backgroundImage = `url("${artUrl}")`;
+                        } else {
+                            upnextThumbEl.style.backgroundImage = "";
+                            upnextBgEl.style.backgroundImage = "";
+                        }
+                        upnextTitleEl.textContent = t.name || t.title || "—";
+                        upnextArtistEl.textContent =
+                            t.artistName || t.artist || "—";
+                    };
+
+                    if (id === lastUpNextId) {
+                        // Same up-next track — keep visible, no animation
+                        upnextEl.classList.add("show");
+                        return;
                     }
-                    upnextTitleEl.textContent = t.name || t.title || "—";
-                    upnextArtistEl.textContent =
-                        t.artistName || t.artist || "—";
-                    upnextEl.classList.add("show");
+
+                    if (lastUpNextId === null) {
+                        // First show — set content and let the bar slide in
+                        setContent();
+                        upnextEl.classList.add("show");
+                    } else {
+                        // Up-next changed — animate thumb then info
+                        transitionSwap(upnextThumbEl, 50, () => {
+                            const artUrl = resolveArtworkUrl(
+                                t.artwork && t.artwork.url,
+                                ART_SIZE,
+                            );
+                            if (artUrl) {
+                                upnextThumbEl.style.backgroundImage = `url("${artUrl}")`;
+                                upnextBgEl.style.backgroundImage = `url("${artUrl}")`;
+                            }
+                        });
+                        transitionSwap(upnextInfoEl, 120, () => {
+                            upnextTitleEl.textContent = t.name || t.title || "—";
+                            upnextArtistEl.textContent =
+                                t.artistName || t.artist || "—";
+                        });
+                    }
+
+                    lastUpNextId = id;
                 }
 
                 function applyProgress(data) {
