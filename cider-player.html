@@ -566,63 +566,19 @@
                     console.warn("[cider-overlay] socket connect_error:", err.message);
                 });
 
-                // Diagnostic: log every event Cider emits, with full payload for
-                // anything that isn't a high-frequency time update.
+                // Diagnostic: log every non-time event with raw object so we can
+                // expand it in DevTools and inspect every key.
                 cider.onAny((event, payload) => {
-                    const isTimeUpdate =
+                    if (
                         payload &&
                         payload.type ===
-                            "playbackStatus.playbackTimeDidChange";
-                    if (isTimeUpdate) return;
-                    try {
-                        const summary =
-                            payload && typeof payload === "object"
-                                ? JSON.stringify(payload).slice(0, 1200)
-                                : String(payload);
-                        console.log(
-                            `[cider-overlay] event: ${event} type=${payload && payload.type} payload=${summary}`,
-                        );
-                    } catch {
-                        console.log("[cider-overlay] event:", event, payload);
-                    }
-
-                    // Heuristic: if any event carries queue-shaped data, use it
-                    if (event !== "API:Playback" && payload && typeof payload === "object") {
-                        const lower = event.toLowerCase();
-                        if (lower.includes("queue") || lower.includes("upnext")) {
-                            const items =
-                                payload.data ||
-                                payload.queue ||
-                                payload.items ||
-                                (Array.isArray(payload) ? payload : null);
-                            if (Array.isArray(items) && items.length) {
-                                let next = items[0];
-                                if (next && lastSongId) {
-                                    const nextId =
-                                        (next.playParams && next.playParams.id) ||
-                                        `${next.name}|${next.artistName}`;
-                                    if (nextId === lastSongId) next = items[1];
-                                }
-                                applyUpNext(next || null);
-                            }
-                        }
-                    }
-                });
-
-                // Try common Cider RPC request patterns over the socket — if any
-                // produce a response we'll see it in the onAny logger above.
-                cider.on("connect", () => {
-                    const probes = [
-                        ["playback.queue", null],
-                        ["api/v1/playback/queue", null],
-                        ["GET", "/api/v1/playback/queue"],
-                        ["WSAPI", { method: "GET", path: "/api/v1/playback/queue" }],
-                    ];
-                    for (const [evt, data] of probes) {
-                        try {
-                            cider.emit(evt, data);
-                        } catch {}
-                    }
+                            "playbackStatus.playbackTimeDidChange"
+                    )
+                        return;
+                    console.log(
+                        `[cider-overlay] event:${event} type:${payload && payload.type}`,
+                        payload,
+                    );
                 });
 
                 cider.on("API:Playback", ({ data, type }) => {
