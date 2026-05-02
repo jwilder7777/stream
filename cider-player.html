@@ -1,0 +1,493 @@
+<!doctype html>
+<html lang="en">
+    <head>
+        <meta charset="utf-8" />
+        <title>Cider Now Playing</title>
+        <link rel="preconnect" href="https://fonts.googleapis.com" />
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+        <link
+            href="https://fonts.googleapis.com/css2?family=Sora:wght@400;500;700;800&family=Inter:wght@400;500;600&display=swap"
+            rel="stylesheet"
+        />
+        <style>
+            /* ============================================================
+     CIDER NOW-PLAYING OVERLAY
+     Lower-third bar for OBS browser source.
+     Polls Cider RPC at http://localhost:10767 every 1 second.
+     ============================================================ */
+
+            :root {
+                /* Edit these to taste */
+                --bar-width: 720px;
+                --bar-height: 160px;
+                --art-size: 130px;
+                --pad: 15px;
+                --radius: 14px;
+                --progress-height: 4px;
+
+                /* Colors */
+                --text: #ffffff;
+                --text-dim: rgba(255, 255, 255, 0.72);
+                --progress-bg: rgba(255, 255, 255, 0.2);
+                --progress-fill: #ffffff;
+                --bar-tint: rgba(
+                    0,
+                    0,
+                    0,
+                    0.35
+                ); /* darken layer over blurred art for readability */
+            }
+
+            * {
+                box-sizing: border-box;
+                margin: 0;
+                padding: 0;
+            }
+
+            html,
+            body {
+                width: 100%;
+                height: 100%;
+                background: transparent !important; /* OBS browser source — keep transparent */
+                overflow: hidden;
+                font-family: "Sora", system-ui, sans-serif;
+                -webkit-font-smoothing: antialiased;
+                -moz-osx-font-smoothing: grayscale;
+            }
+
+            /* Hide everything until we get a track — prevents flash of empty bar on stream startup */
+            .stage {
+                width: var(--bar-width);
+                height: var(--bar-height);
+                position: fixed;
+                bottom: 40px;
+                left: 50%;
+                transform: translateX(-50%) translateY(120%);
+                opacity: 0;
+                transition:
+                    transform 600ms cubic-bezier(0.22, 1, 0.36, 1),
+                    opacity 400ms ease;
+            }
+            .stage.visible {
+                transform: translateX(-50%) translateY(0);
+                opacity: 1;
+            }
+
+            /* Slide-down hide for when nothing is playing */
+            .stage.hiding {
+                transform: translateX(-50%) translateY(120%);
+                opacity: 0;
+            }
+
+            .bar {
+                position: relative;
+                width: 100%;
+                height: 100%;
+                border-radius: var(--radius);
+                overflow: hidden;
+                box-shadow:
+                    0 20px 50px rgba(0, 0, 0, 0.55),
+                    0 4px 12px rgba(0, 0, 0, 0.35),
+                    inset 0 0 0 1px rgba(255, 255, 255, 0.06);
+            }
+
+            /* Blurred album art layer — sits behind everything */
+            .bg {
+                position: absolute;
+                inset: -40px; /* expand to hide blur edges */
+                background-size: cover;
+                background-position: center;
+                filter: blur(28px) saturate(1.4) brightness(0.85);
+                transform: scale(1.15);
+                transition: background-image 600ms ease;
+                will-change: background-image;
+            }
+
+            /* Dark vignette/tint over the blur for text contrast */
+            .tint {
+                position: absolute;
+                inset: 0;
+                background:
+                    linear-gradient(
+                        90deg,
+                        rgba(0, 0, 0, 0.55) 0%,
+                        rgba(0, 0, 0, 0.35) 40%,
+                        rgba(0, 0, 0, 0.45) 100%
+                    ),
+                    var(--bar-tint);
+            }
+
+            /* Subtle noise texture for premium feel */
+            .grain {
+                position: absolute;
+                inset: 0;
+                opacity: 0.06;
+                pointer-events: none;
+                background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='200' height='200'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='2'/></filter><rect width='100%' height='100%' filter='url(%23n)' opacity='0.5'/></svg>");
+            }
+
+            /* Main content row */
+            .content {
+                position: relative;
+                height: 100%;
+                padding: var(--pad);
+                display: flex;
+                align-items: center;
+                gap: 18px;
+            }
+
+            /* Album art (sharp version) */
+            .art-wrap {
+                position: relative;
+                width: var(--art-size);
+                height: var(--art-size);
+                flex-shrink: 0;
+                border-radius: 8px;
+                overflow: hidden;
+                box-shadow:
+                    0 8px 22px rgba(0, 0, 0, 0.45),
+                    0 2px 6px rgba(0, 0, 0, 0.3),
+                    inset 0 0 0 1px rgba(255, 255, 255, 0.08);
+            }
+            .art {
+                width: 100%;
+                height: 100%;
+                object-fit: cover;
+                display: block;
+                transition: opacity 400ms ease;
+            }
+            .art.swap {
+                opacity: 0;
+            }
+
+            /* Track info column */
+            .info {
+                flex: 1;
+                min-width: 0; /* allow flex children to shrink */
+                display: flex;
+                flex-direction: column;
+                justify-content: center;
+                gap: 6px;
+                padding-bottom: 14px; /* leave room for the progress bar */
+            }
+
+            .now-playing-label {
+                display: flex;
+                align-items: center;
+                gap: 8px;
+                font-family: "Inter", sans-serif;
+                font-size: 10px;
+                font-weight: 600;
+                letter-spacing: 0.22em;
+                text-transform: uppercase;
+                color: var(--text-dim);
+                margin-bottom: 2px;
+            }
+
+            /* Animated equalizer bars next to "NOW PLAYING" */
+            .eq {
+                display: inline-flex;
+                align-items: flex-end;
+                gap: 2px;
+                height: 11px;
+            }
+            .eq span {
+                display: block;
+                width: 2px;
+                background: #ffffff;
+                border-radius: 1px;
+                animation: eq 0.9s ease-in-out infinite;
+            }
+            .eq span:nth-child(1) {
+                animation-delay: -0.4s;
+                height: 60%;
+            }
+            .eq span:nth-child(2) {
+                animation-delay: -0.2s;
+                height: 100%;
+            }
+            .eq span:nth-child(3) {
+                animation-delay: -0.6s;
+                height: 75%;
+            }
+            .eq span:nth-child(4) {
+                animation-delay: -0.1s;
+                height: 50%;
+            }
+            /* When paused, freeze the bars */
+            .stage.paused .eq span {
+                animation-play-state: paused;
+            }
+
+            @keyframes eq {
+                0%,
+                100% {
+                    transform: scaleY(0.3);
+                }
+                50% {
+                    transform: scaleY(1);
+                }
+            }
+
+            .title {
+                font-family: "Sora", sans-serif;
+                font-size: 24px;
+                font-weight: 700;
+                line-height: 1.15;
+                color: var(--text);
+                text-shadow: 0 2px 8px rgba(0, 0, 0, 0.5);
+                /* truncate long titles cleanly */
+                white-space: nowrap;
+                overflow: hidden;
+                text-overflow: ellipsis;
+                transition: opacity 400ms ease;
+                letter-spacing: -0.01em;
+            }
+            .title.swap {
+                opacity: 0;
+            }
+
+            .artist {
+                font-family: "Inter", sans-serif;
+                font-size: 15px;
+                font-weight: 400;
+                line-height: 1.2;
+                color: var(--text-dim);
+                text-shadow: 0 1px 4px rgba(0, 0, 0, 0.5);
+                white-space: nowrap;
+                overflow: hidden;
+                text-overflow: ellipsis;
+                transition: opacity 400ms ease;
+            }
+            .artist.swap {
+                opacity: 0;
+            }
+
+            /* Progress bar pinned to bottom, full width of bar */
+            .progress {
+                position: absolute;
+                left: 0;
+                right: 0;
+                bottom: 0;
+                height: var(--progress-height);
+                background: var(--progress-bg);
+            }
+            .progress-fill {
+                height: 100%;
+                width: 0%;
+                background: var(--progress-fill);
+                transition: width 1s linear;
+                box-shadow: 0 0 12px rgba(255, 255, 255, 0.4);
+            }
+            /* When paused, kill the smooth transition so it freezes immediately */
+            .stage.paused .progress-fill {
+                transition: none;
+            }
+
+            /* Time markers, small and subtle */
+            .times {
+                position: absolute;
+                bottom: 10px;
+                right: 14px;
+                font-family: "Inter", sans-serif;
+                font-size: 10px;
+                font-weight: 500;
+                color: var(--text-dim);
+                letter-spacing: 0.04em;
+                font-variant-numeric: tabular-nums;
+                text-shadow: 0 1px 3px rgba(0, 0, 0, 0.6);
+            }
+        </style>
+    </head>
+    <body>
+        <div class="stage" id="stage">
+            <div class="bar">
+                <div class="bg" id="bg"></div>
+                <div class="tint"></div>
+                <div class="grain"></div>
+
+                <div class="content">
+                    <div class="art-wrap">
+                        <img class="art" id="art" alt="" />
+                    </div>
+
+                    <div class="info">
+                        <div class="now-playing-label">
+                            <span class="eq" aria-hidden="true">
+                                <span></span><span></span><span></span
+                                ><span></span>
+                            </span>
+                            <span id="status-label">Now Playing</span>
+                        </div>
+                        <div class="title" id="title">—</div>
+                        <div class="artist" id="artist">—</div>
+                    </div>
+                </div>
+
+                <div class="times">
+                    <span id="elapsed">0:00</span> /
+                    <span id="duration">0:00</span>
+                </div>
+                <div class="progress">
+                    <div class="progress-fill" id="progress"></div>
+                </div>
+            </div>
+        </div>
+
+        <script>
+            (() => {
+                // =========================================================
+                // CONFIG — set these once
+                // =========================================================
+                const CIDER_HOST = "http://localhost:10767";
+                const API_TOKEN = ""; // <-- paste your Cider API token here, or leave empty if you've disabled auth in Cider settings
+                const POLL_MS = 1000; // how often to poll Cider (ms). 1000 = once per second. Don't go below 500.
+                const ART_SIZE = 600; // resolution of album art to fetch (Apple Music supports up to ~3000)
+
+                // =========================================================
+                // DOM refs
+                // =========================================================
+                const stage = document.getElementById("stage");
+                const bg = document.getElementById("bg");
+                const art = document.getElementById("art");
+                const titleEl = document.getElementById("title");
+                const artistEl = document.getElementById("artist");
+                const elapsedEl = document.getElementById("elapsed");
+                const durationEl = document.getElementById("duration");
+                const progressEl = document.getElementById("progress");
+                const statusEl = document.getElementById("status-label");
+
+                // Track last shown song so we know when to crossfade
+                let lastSongId = null;
+                let lastWasPlaying = null;
+
+                // =========================================================
+                // Helpers
+                // =========================================================
+                const headers = API_TOKEN ? { apitoken: API_TOKEN } : {};
+
+                async function fetchJson(path) {
+                    try {
+                        const res = await fetch(`${CIDER_HOST}${path}`, {
+                            headers,
+                        });
+                        if (!res.ok) return null;
+                        // /active returns 204 with no body; check before parsing
+                        if (res.status === 204) return { ok: true };
+                        return await res.json();
+                    } catch (err) {
+                        // Cider is closed or unreachable
+                        return null;
+                    }
+                }
+
+                function formatTime(sec) {
+                    if (!isFinite(sec) || sec < 0) sec = 0;
+                    const m = Math.floor(sec / 60);
+                    const s = Math.floor(sec % 60);
+                    return `${m}:${s.toString().padStart(2, "0")}`;
+                }
+
+                function resolveArtworkUrl(rawUrl, size = ART_SIZE) {
+                    // Apple Music artwork URLs contain {w} and {h} template tokens
+                    if (!rawUrl) return "";
+                    return rawUrl.replace("{w}", size).replace("{h}", size);
+                }
+
+                function showStage() {
+                    stage.classList.add("visible");
+                    stage.classList.remove("hiding");
+                }
+                function hideStage() {
+                    stage.classList.add("hiding");
+                    stage.classList.remove("visible");
+                }
+
+                function setPaused(paused) {
+                    stage.classList.toggle("paused", paused);
+                    statusEl.textContent = paused ? "Paused" : "Now Playing";
+                }
+
+                // =========================================================
+                // The main update loop
+                // =========================================================
+                async function tick() {
+                    const playing = await fetchJson(
+                        "/api/v1/playback/is-playing",
+                    );
+                    const np = await fetchJson("/api/v1/playback/now-playing");
+
+                    // No connection or nothing in the player at all
+                    if (!np || np.status !== "ok" || !np.info) {
+                        hideStage();
+                        lastSongId = null;
+                        return;
+                    }
+
+                    const info = np.info;
+                    const isPlaying = !!(playing && playing.is_playing);
+
+                    // Build a stable identifier for the current track
+                    const songId =
+                        info.playParams && info.playParams.id
+                            ? info.playParams.id
+                            : info.name + "|" + info.artistName;
+
+                    // ===== Track changed: crossfade =====
+                    if (songId !== lastSongId) {
+                        // Quick fade-out
+                        art.classList.add("swap");
+                        titleEl.classList.add("swap");
+                        artistEl.classList.add("swap");
+
+                        // Wait for fade, then swap content + fade back in
+                        setTimeout(() => {
+                            const artUrl = resolveArtworkUrl(
+                                info.artwork && info.artwork.url,
+                                ART_SIZE,
+                            );
+                            art.src = artUrl;
+                            bg.style.backgroundImage = `url("${artUrl}")`;
+                            titleEl.textContent = info.name || "—";
+                            artistEl.textContent = info.artistName || "—";
+
+                            // Fade back in (next frame so the browser sees the change)
+                            requestAnimationFrame(() => {
+                                art.classList.remove("swap");
+                                titleEl.classList.remove("swap");
+                                artistEl.classList.remove("swap");
+                            });
+                        }, 350);
+
+                        lastSongId = songId;
+                        showStage();
+                    } else {
+                        // Same song — just make sure we're visible
+                        showStage();
+                    }
+
+                    // ===== Play/Pause state =====
+                    if (isPlaying !== lastWasPlaying) {
+                        setPaused(!isPlaying);
+                        lastWasPlaying = isPlaying;
+                    }
+
+                    // ===== Progress bar =====
+                    const totalSec = (info.durationInMillis || 0) / 1000;
+                    const currentSec = info.currentPlaybackTime || 0;
+                    const pct =
+                        totalSec > 0
+                            ? Math.min(100, (currentSec / totalSec) * 100)
+                            : 0;
+                    progressEl.style.width = pct + "%";
+                    elapsedEl.textContent = formatTime(currentSec);
+                    durationEl.textContent = formatTime(totalSec);
+                }
+
+                // Kick off — poll forever
+                tick();
+                setInterval(tick, POLL_MS);
+            })();
+        </script>
+    </body>
+</html>
