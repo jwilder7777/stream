@@ -515,8 +515,10 @@
                         upnextEl.classList.remove("show");
                         return;
                     }
+                    // Queue items may be wrapped: {attributes: {...}} (MusicKit shape)
+                    const t = track.attributes || track;
                     const artUrl = resolveArtworkUrl(
-                        track.artwork && track.artwork.url,
+                        t.artwork && t.artwork.url,
                         200,
                     );
                     if (artUrl) {
@@ -524,8 +526,9 @@
                     } else {
                         upnextThumbEl.style.backgroundImage = "";
                     }
-                    upnextTitleEl.textContent = track.name || "—";
-                    upnextArtistEl.textContent = track.artistName || "—";
+                    upnextTitleEl.textContent = t.name || t.title || "—";
+                    upnextArtistEl.textContent =
+                        t.artistName || t.artist || "—";
                     upnextEl.classList.add("show");
                 }
 
@@ -561,6 +564,7 @@
 
                 async function refreshUpNext(currentInfo) {
                     const data = await fetchJson("/api/v1/playback/queue");
+                    console.log("[cider-overlay] queue raw:", data);
                     if (!data) {
                         applyUpNext(null);
                         return;
@@ -572,17 +576,22 @@
                         applyUpNext(null);
                         return;
                     }
-                    const currentId =
-                        currentInfo &&
-                        ((currentInfo.playParams &&
-                            currentInfo.playParams.id) ||
-                            `${currentInfo.name}|${currentInfo.artistName}`);
-                    let next = items[0];
-                    const nextId =
-                        (next.playParams && next.playParams.id) ||
-                        `${next.name}|${next.artistName}`;
-                    if (currentId && nextId === currentId) next = items[1];
-                    applyUpNext(next || null);
+
+                    // Pick the next track that isn't the currently-playing one
+                    const idOf = (track) => {
+                        const t = (track && track.attributes) || track || {};
+                        return (
+                            (t.playParams && t.playParams.id) ||
+                            t.id ||
+                            (track && track.id) ||
+                            `${t.name || ""}|${t.artistName || ""}`
+                        );
+                    };
+                    const currentId = currentInfo ? idOf(currentInfo) : null;
+                    const nextTrack = items.find(
+                        (t) => !currentId || idOf(t) !== currentId,
+                    );
+                    applyUpNext(nextTrack || null);
                 }
 
                 async function fetchInitialState() {
