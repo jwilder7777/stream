@@ -29,6 +29,9 @@
                 --pad: 15px;
                 --radius: 14px;
                 --progress-height: 4px;
+                --upnext-height: 36px;
+                --upnext-gap: 8px;
+                --upnext-thumb-size: 28px;
 
                 /* Colors */
                 --text: #ffffff;
@@ -63,11 +66,11 @@
             /* Hide everything until we get a track — prevents flash of empty bar on stream startup */
             .stage {
                 width: var(--bar-width);
-                height: var(--bar-height);
+                /* height auto so the upnext bar can stack below cleanly */
                 position: fixed;
                 bottom: 40px;
                 left: 50%;
-                transform: translateX(-50%) translateY(120%);
+                transform: translateX(-50%) translateY(140%);
                 opacity: 0;
                 transition:
                     transform 600ms cubic-bezier(0.22, 1, 0.36, 1),
@@ -80,14 +83,14 @@
 
             /* Slide-down hide for when nothing is playing */
             .stage.hiding {
-                transform: translateX(-50%) translateY(120%);
+                transform: translateX(-50%) translateY(140%);
                 opacity: 0;
             }
 
             .bar {
                 position: relative;
                 width: 100%;
-                height: 100%;
+                height: var(--bar-height);
                 border-radius: var(--radius);
                 overflow: hidden;
                 box-shadow:
@@ -289,6 +292,78 @@
                 transition: none;
             }
 
+            /* ============ UP NEXT mini-bar ============ */
+            .upnext {
+                width: 100%;
+                height: var(--upnext-height);
+                margin-top: var(--upnext-gap);
+                border-radius: 10px;
+                background: rgba(0, 0, 0, 0.55);
+                backdrop-filter: blur(20px) saturate(1.4);
+                -webkit-backdrop-filter: blur(20px) saturate(1.4);
+                box-shadow:
+                    0 8px 22px rgba(0, 0, 0, 0.45),
+                    inset 0 0 0 1px rgba(255, 255, 255, 0.06);
+                display: flex;
+                align-items: center;
+                gap: 10px;
+                padding: 0 14px 0 4px;
+                opacity: 0;
+                transform: translateY(-4px);
+                transition:
+                    opacity 400ms ease,
+                    transform 400ms ease;
+                pointer-events: none;
+            }
+            .upnext.show {
+                opacity: 1;
+                transform: translateY(0);
+            }
+
+            .upnext-thumb {
+                width: var(--upnext-thumb-size);
+                height: var(--upnext-thumb-size);
+                border-radius: 5px;
+                background-size: cover;
+                background-position: center;
+                background-color: rgba(255, 255, 255, 0.06);
+                flex-shrink: 0;
+                margin-left: 4px;
+                box-shadow:
+                    0 2px 6px rgba(0, 0, 0, 0.4),
+                    inset 0 0 0 1px rgba(255, 255, 255, 0.08);
+            }
+
+            .upnext-label {
+                font-family: "Inter", sans-serif;
+                font-size: 9px;
+                font-weight: 700;
+                letter-spacing: 0.22em;
+                text-transform: uppercase;
+                color: rgba(255, 255, 255, 0.55);
+                flex-shrink: 0;
+            }
+
+            .upnext-info {
+                flex: 1;
+                min-width: 0;
+                font-family: "Inter", sans-serif;
+                font-size: 12px;
+                color: var(--text-dim);
+                white-space: nowrap;
+                overflow: hidden;
+                text-overflow: ellipsis;
+                text-shadow: 0 1px 3px rgba(0, 0, 0, 0.5);
+            }
+            .upnext-info .upnext-title {
+                color: var(--text);
+                font-weight: 600;
+            }
+            .upnext-info .upnext-sep {
+                margin: 0 6px;
+                opacity: 0.4;
+            }
+
             /* Time markers, small and subtle */
             .times {
                 position: absolute;
@@ -337,6 +412,16 @@
                     <div class="progress-fill" id="progress"></div>
                 </div>
             </div>
+
+            <div class="upnext" id="upnext">
+                <div class="upnext-thumb" id="upnext-thumb"></div>
+                <div class="upnext-label">Up Next</div>
+                <div class="upnext-info">
+                    <span class="upnext-title" id="upnext-title">—</span>
+                    <span class="upnext-sep">·</span>
+                    <span class="upnext-artist" id="upnext-artist">—</span>
+                </div>
+            </div>
         </div>
 
         <script>
@@ -355,6 +440,10 @@
                 const durationEl = document.getElementById("duration");
                 const progressEl = document.getElementById("progress");
                 const statusEl = document.getElementById("status-label");
+                const upnextEl = document.getElementById("upnext");
+                const upnextThumbEl = document.getElementById("upnext-thumb");
+                const upnextTitleEl = document.getElementById("upnext-title");
+                const upnextArtistEl = document.getElementById("upnext-artist");
 
                 let lastSongId = null;
 
@@ -421,6 +510,25 @@
                     showStage();
                 }
 
+                function applyUpNext(track) {
+                    if (!track) {
+                        upnextEl.classList.remove("show");
+                        return;
+                    }
+                    const artUrl = resolveArtworkUrl(
+                        track.artwork && track.artwork.url,
+                        200,
+                    );
+                    if (artUrl) {
+                        upnextThumbEl.style.backgroundImage = `url("${artUrl}")`;
+                    } else {
+                        upnextThumbEl.style.backgroundImage = "";
+                    }
+                    upnextTitleEl.textContent = track.name || "—";
+                    upnextArtistEl.textContent = track.artistName || "—";
+                    upnextEl.classList.add("show");
+                }
+
                 function applyProgress(data) {
                     // Cider sends currentPlaybackDuration in seconds via socket events
                     const totalSec =
@@ -445,10 +553,48 @@
                     new URLSearchParams(location.hash.slice(1)).get("token") ||
                     "";
 
-                async function fetchInitialState() {
-                    const q = initialFetchToken
+                function tokenQuery() {
+                    return initialFetchToken
                         ? `?apitoken=${encodeURIComponent(initialFetchToken)}`
                         : "";
+                }
+
+                async function refreshUpNext(currentInfo) {
+                    try {
+                        const res = await fetch(
+                            `${CIDER_HOST}/api/v1/playback/queue${tokenQuery()}`,
+                        );
+                        if (!res.ok) {
+                            applyUpNext(null);
+                            return;
+                        }
+                        const data = await res.json();
+                        const items =
+                            (data && (data.data || data.queue || data.items)) ||
+                            (Array.isArray(data) ? data : []);
+                        if (!items.length) {
+                            applyUpNext(null);
+                            return;
+                        }
+                        // Skip the currently-playing track if it's at the head
+                        const currentId =
+                            currentInfo &&
+                            ((currentInfo.playParams &&
+                                currentInfo.playParams.id) ||
+                                `${currentInfo.name}|${currentInfo.artistName}`);
+                        let next = items[0];
+                        const nextId =
+                            (next.playParams && next.playParams.id) ||
+                            `${next.name}|${next.artistName}`;
+                        if (currentId && nextId === currentId) next = items[1];
+                        applyUpNext(next || null);
+                    } catch (err) {
+                        applyUpNext(null);
+                    }
+                }
+
+                async function fetchInitialState() {
+                    const q = tokenQuery();
                     try {
                         const [npRes, playRes] = await Promise.all([
                             fetch(`${CIDER_HOST}/api/v1/playback/now-playing${q}`),
@@ -469,6 +615,7 @@
                             const playing = await playRes.json();
                             setPaused(!playing.is_playing);
                         }
+                        refreshUpNext(np.info);
                         console.log("[cider-overlay] initial state populated:", np.info.name);
                     } catch (err) {
                         console.warn("[cider-overlay] initial fetch failed:", err);
@@ -491,6 +638,7 @@
                         case "playbackStatus.nowPlayingItemDidChange":
                             applyTrack(data);
                             setPaused(false);
+                            refreshUpNext(data);
                             break;
                         case "playbackStatus.playbackTimeDidChange":
                             applyProgress(data);
@@ -498,12 +646,17 @@
                         case "playbackStatus.playbackStateDidChange":
                             if (data.state === "playing") {
                                 setPaused(false);
-                                if (data.attributes) applyTrack(data.attributes);
-                                else showStage();
+                                if (data.attributes) {
+                                    applyTrack(data.attributes);
+                                    refreshUpNext(data.attributes);
+                                } else {
+                                    showStage();
+                                }
                             } else if (data.state === "paused") {
                                 setPaused(true);
                             } else if (data.state === "stopped") {
                                 hideStage();
+                                applyUpNext(null);
                                 lastSongId = null;
                             }
                             break;
@@ -512,6 +665,7 @@
 
                 cider.on("disconnect", () => {
                     hideStage();
+                    applyUpNext(null);
                     lastSongId = null;
                 });
             })();
