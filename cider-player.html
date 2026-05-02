@@ -545,92 +545,63 @@
                     durationEl.textContent = formatTime(totalSec);
                 }
 
-                // Optional token for the initial-state HTTP fetch only — append
-                //   #token=YOUR_TOKEN
-                // to the URL if Cider RPC auth is enabled. Fragment never leaves the browser.
-                // Not needed for the WebSocket connection itself.
-                const initialFetchToken =
-                    new URLSearchParams(location.hash.slice(1)).get("token") ||
-                    "";
+                // We only use the WebSocket — Cider's HTTP RPC blocks non-localhost
+                // origins (returns 403) regardless of API token, so we can't fetch
+                // initial state or queue over HTTP from a github.io page.
+                // Fix: whitelist this origin in Cider's settings. Until then we live
+                // entirely off WebSocket events.
 
-                function tokenQuery() {
-                    return initialFetchToken
-                        ? `?apitoken=${encodeURIComponent(initialFetchToken)}`
-                        : "";
-                }
-
-                async function refreshUpNext(currentInfo) {
-                    try {
-                        const res = await fetch(
-                            `${CIDER_HOST}/api/v1/playback/queue${tokenQuery()}`,
-                        );
-                        if (!res.ok) {
-                            applyUpNext(null);
-                            return;
-                        }
-                        const data = await res.json();
-                        const items =
-                            (data && (data.data || data.queue || data.items)) ||
-                            (Array.isArray(data) ? data : []);
-                        if (!items.length) {
-                            applyUpNext(null);
-                            return;
-                        }
-                        // Skip the currently-playing track if it's at the head
-                        const currentId =
-                            currentInfo &&
-                            ((currentInfo.playParams &&
-                                currentInfo.playParams.id) ||
-                                `${currentInfo.name}|${currentInfo.artistName}`);
-                        let next = items[0];
-                        const nextId =
-                            (next.playParams && next.playParams.id) ||
-                            `${next.name}|${next.artistName}`;
-                        if (currentId && nextId === currentId) next = items[1];
-                        applyUpNext(next || null);
-                    } catch (err) {
-                        applyUpNext(null);
-                    }
-                }
-
-                async function fetchInitialState() {
-                    const q = tokenQuery();
-                    try {
-                        const [npRes, playRes] = await Promise.all([
-                            fetch(`${CIDER_HOST}/api/v1/playback/now-playing${q}`),
-                            fetch(`${CIDER_HOST}/api/v1/playback/is-playing${q}`),
-                        ]);
-                        if (!npRes.ok) {
-                            console.warn("[cider-overlay] now-playing returned", npRes.status);
-                            return;
-                        }
-                        const np = await npRes.json();
-                        if (np.status !== "ok" || !np.info) {
-                            console.log("[cider-overlay] no track currently loaded");
-                            return;
-                        }
-                        applyTrack(np.info);
-                        applyProgress(np.info);
-                        if (playRes.ok) {
-                            const playing = await playRes.json();
-                            setPaused(!playing.is_playing);
-                        }
-                        refreshUpNext(np.info);
-                        console.log("[cider-overlay] initial state populated:", np.info.name);
-                    } catch (err) {
-                        console.warn("[cider-overlay] initial fetch failed:", err);
-                    }
+                function refreshUpNext(_currentInfo) {
+                    // Placeholder — wired up if Cider broadcasts queue events.
+                    // The onAny logger below will reveal the right event names.
                 }
 
                 const cider = io(CIDER_HOST, { transports: ["websocket"] });
 
                 cider.on("connect", () => {
                     console.log("[cider-overlay] socket connected");
-                    fetchInitialState();
                 });
 
                 cider.on("connect_error", (err) => {
                     console.warn("[cider-overlay] socket connect_error:", err.message);
+                });
+
+                // Diagnostic: log every event Cider emits so we can identify queue
+                // and now-playing events that don't fit the API:Playback handler below.
+                cider.onAny((event, payload) => {
+                    console.log(
+                        "[cider-overlay] event:",
+                        event,
+                        payload && payload.type
+                            ? `type=${payload.type}`
+                            : "",
+                    );
+                    // Try to find queue-shaped data in any unrecognized event
+                    if (
+                        event !== "API:Playback" &&
+                        payload &&
+                        typeof payload === "object"
+                    ) {
+                        const lower = event.toLowerCase();
+                        if (lower.includes("queue") || lower.includes("upnext")) {
+                            const items =
+                                payload.data ||
+                                payload.queue ||
+                                payload.items ||
+                                (Array.isArray(payload) ? payload : null);
+                            if (Array.isArray(items) && items.length) {
+                                let next = items[0];
+                                if (next && lastSongId) {
+                                    const nextId =
+                                        (next.playParams &&
+                                            next.playParams.id) ||
+                                        `${next.name}|${next.artistName}`;
+                                    if (nextId === lastSongId) next = items[1];
+                                }
+                                applyUpNext(next || null);
+                            }
+                        }
+                    }
                 });
 
                 cider.on("API:Playback", ({ data, type }) => {
