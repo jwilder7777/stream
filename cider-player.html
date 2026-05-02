@@ -437,7 +437,54 @@
                     durationEl.textContent = formatTime(totalSec);
                 }
 
+                // Optional token for the initial-state HTTP fetch only — append
+                //   #token=YOUR_TOKEN
+                // to the URL if Cider RPC auth is enabled. Fragment never leaves the browser.
+                // Not needed for the WebSocket connection itself.
+                const initialFetchToken =
+                    new URLSearchParams(location.hash.slice(1)).get("token") ||
+                    "";
+
+                async function fetchInitialState() {
+                    const q = initialFetchToken
+                        ? `?apitoken=${encodeURIComponent(initialFetchToken)}`
+                        : "";
+                    try {
+                        const [npRes, playRes] = await Promise.all([
+                            fetch(`${CIDER_HOST}/api/v1/playback/now-playing${q}`),
+                            fetch(`${CIDER_HOST}/api/v1/playback/is-playing${q}`),
+                        ]);
+                        if (!npRes.ok) {
+                            console.warn("[cider-overlay] now-playing returned", npRes.status);
+                            return;
+                        }
+                        const np = await npRes.json();
+                        if (np.status !== "ok" || !np.info) {
+                            console.log("[cider-overlay] no track currently loaded");
+                            return;
+                        }
+                        applyTrack(np.info);
+                        applyProgress(np.info);
+                        if (playRes.ok) {
+                            const playing = await playRes.json();
+                            setPaused(!playing.is_playing);
+                        }
+                        console.log("[cider-overlay] initial state populated:", np.info.name);
+                    } catch (err) {
+                        console.warn("[cider-overlay] initial fetch failed:", err);
+                    }
+                }
+
                 const cider = io(CIDER_HOST, { transports: ["websocket"] });
+
+                cider.on("connect", () => {
+                    console.log("[cider-overlay] socket connected");
+                    fetchInitialState();
+                });
+
+                cider.on("connect_error", (err) => {
+                    console.warn("[cider-overlay] socket connect_error:", err.message);
+                });
 
                 cider.on("API:Playback", ({ data, type }) => {
                     switch (type) {
