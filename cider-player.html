@@ -340,7 +340,13 @@
                 // CONFIG — set these once
                 // =========================================================
                 const CIDER_HOST = "http://localhost:10767";
-                const API_TOKEN = ""; // <-- paste your Cider API token here, or leave empty if you've disabled auth in Cider settings
+                // Token can come from the URL hash fragment so it's never committed:
+                //   cider-player.html#token=YOUR_TOKEN
+                // Hash fragments are not sent in HTTP requests and stay client-side.
+                // If you've disabled auth in Cider settings, you can ignore the token entirely.
+                const API_TOKEN =
+                    new URLSearchParams(location.hash.slice(1)).get("token") ||
+                    "";
                 const POLL_MS = 1000; // how often to poll Cider (ms). 1000 = once per second. Don't go below 500.
                 const ART_SIZE = 600; // resolution of album art to fetch (Apple Music supports up to ~3000)
 
