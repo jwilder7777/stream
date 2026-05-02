@@ -370,13 +370,18 @@
                 // =========================================================
                 // Helpers
                 // =========================================================
-                const headers = API_TOKEN ? { apitoken: API_TOKEN } : {};
+                // Send token as query param, not header — custom headers trigger CORS
+                // preflight that Cider's RPC server doesn't whitelist. Query params are
+                // simple requests with no preflight.
+                const tokenQuery = API_TOKEN
+                    ? `?apitoken=${encodeURIComponent(API_TOKEN)}`
+                    : "";
 
                 async function fetchJson(path) {
                     try {
-                        const res = await fetch(`${CIDER_HOST}${path}`, {
-                            headers,
-                        });
+                        const res = await fetch(
+                            `${CIDER_HOST}${path}${tokenQuery}`,
+                        );
                         if (!res.ok) return null;
                         // /active returns 204 with no body; check before parsing
                         if (res.status === 204) return { ok: true };
