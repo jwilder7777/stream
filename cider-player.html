@@ -564,33 +564,41 @@
 
                 async function refreshUpNext(currentInfo) {
                     const data = await fetchJson("/api/v1/playback/queue");
-                    console.log("[cider-overlay] queue raw:", data);
-                    if (!data) {
-                        applyUpNext(null);
-                        return;
-                    }
-                    const items =
-                        data.data || data.queue || data.items ||
-                        (Array.isArray(data) ? data : []);
-                    if (!items.length) {
+                    if (!Array.isArray(data) || !data.length) {
                         applyUpNext(null);
                         return;
                     }
 
-                    // Pick the next track that isn't the currently-playing one
                     const idOf = (track) => {
-                        const t = (track && track.attributes) || track || {};
+                        if (!track) return null;
+                        const a = track.attributes || {};
                         return (
-                            (t.playParams && t.playParams.id) ||
-                            t.id ||
-                            (track && track.id) ||
-                            `${t.name || ""}|${t.artistName || ""}`
+                            (a.playParams && a.playParams.id) ||
+                            track.id ||
+                            (track.playParams && track.playParams.id) ||
+                            null
                         );
                     };
-                    const currentId = currentInfo ? idOf(currentInfo) : null;
-                    const nextTrack = items.find(
-                        (t) => !currentId || idOf(t) !== currentId,
-                    );
+
+                    let nextTrack = null;
+                    const currentId = idOf(currentInfo);
+
+                    // Cider's queue includes already-played tracks. Locate the
+                    // currently-playing track and take the next one in the array.
+                    if (currentId) {
+                        const idx = data.findIndex(
+                            (t) => idOf(t) === currentId,
+                        );
+                        if (idx >= 0 && idx + 1 < data.length) {
+                            nextTrack = data[idx + 1];
+                        }
+                    }
+                    // Fallback: first item still in "not yet played" state (0)
+                    if (!nextTrack) {
+                        nextTrack = data.find(
+                            (t) => t._state && t._state.current === 0,
+                        );
+                    }
                     applyUpNext(nextTrack || null);
                 }
 
