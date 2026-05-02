@@ -9,6 +9,11 @@
             href="https://fonts.googleapis.com/css2?family=Sora:wght@400;500;700;800&family=Inter:wght@400;500;600&display=swap"
             rel="stylesheet"
         />
+        <script
+            src="https://cdn.socket.io/4.7.5/socket.io.min.js"
+            integrity="sha384-2huaZvOR9iDzHqslqwpR87isEmrfxqyWOF7hr7BY6KG0+hVKLoEXMPUJw3ynWuhO"
+            crossorigin="anonymous"
+        ></script>
         <style>
             /* ============================================================
      CIDER NOW-PLAYING OVERLAY
@@ -336,23 +341,11 @@
 
         <script>
             (() => {
-                // =========================================================
-                // CONFIG — set these once
-                // =========================================================
+                // Connects to Cider over socket.io WebSocket — push-based, no polling,
+                // no auth token, no CORS preflight.
                 const CIDER_HOST = "http://localhost:10767";
-                // Token can come from the URL hash fragment so it's never committed:
-                //   cider-player.html#token=YOUR_TOKEN
-                // Hash fragments are not sent in HTTP requests and stay client-side.
-                // If you've disabled auth in Cider settings, you can ignore the token entirely.
-                const API_TOKEN =
-                    new URLSearchParams(location.hash.slice(1)).get("token") ||
-                    "";
-                const POLL_MS = 1000; // how often to poll Cider (ms). 1000 = once per second. Don't go below 500.
-                const ART_SIZE = 600; // resolution of album art to fetch (Apple Music supports up to ~3000)
+                const ART_SIZE = 600;
 
-                // =========================================================
-                // DOM refs
-                // =========================================================
                 const stage = document.getElementById("stage");
                 const bg = document.getElementById("bg");
                 const art = document.getElementById("art");
@@ -363,34 +356,7 @@
                 const progressEl = document.getElementById("progress");
                 const statusEl = document.getElementById("status-label");
 
-                // Track last shown song so we know when to crossfade
                 let lastSongId = null;
-                let lastWasPlaying = null;
-
-                // =========================================================
-                // Helpers
-                // =========================================================
-                // Send token as query param, not header — custom headers trigger CORS
-                // preflight that Cider's RPC server doesn't whitelist. Query params are
-                // simple requests with no preflight.
-                const tokenQuery = API_TOKEN
-                    ? `?apitoken=${encodeURIComponent(API_TOKEN)}`
-                    : "";
-
-                async function fetchJson(path) {
-                    try {
-                        const res = await fetch(
-                            `${CIDER_HOST}${path}${tokenQuery}`,
-                        );
-                        if (!res.ok) return null;
-                        // /active returns 204 with no body; check before parsing
-                        if (res.status === 204) return { ok: true };
-                        return await res.json();
-                    } catch (err) {
-                        // Cider is closed or unreachable
-                        return null;
-                    }
-                }
 
                 function formatTime(sec) {
                     if (!isFinite(sec) || sec < 0) sec = 0;
@@ -400,7 +366,6 @@
                 }
 
                 function resolveArtworkUrl(rawUrl, size = ART_SIZE) {
-                    // Apple Music artwork URLs contain {w} and {h} template tokens
                     if (!rawUrl) return "";
                     return rawUrl.replace("{w}", size).replace("{h}", size);
                 }
@@ -413,79 +378,56 @@
                     stage.classList.add("hiding");
                     stage.classList.remove("visible");
                 }
-
                 function setPaused(paused) {
                     stage.classList.toggle("paused", paused);
                     statusEl.textContent = paused ? "Paused" : "Now Playing";
                 }
 
-                // =========================================================
-                // The main update loop
-                // =========================================================
-                async function tick() {
-                    const playing = await fetchJson(
-                        "/api/v1/playback/is-playing",
-                    );
-                    const np = await fetchJson("/api/v1/playback/now-playing");
+                function applyTrack(info) {
+                    if (!info) return;
+                    const songId =
+                        (info.playParams && info.playParams.id) ||
+                        `${info.name}|${info.artistName}`;
 
-                    // No connection or nothing in the player at all
-                    if (!np || np.status !== "ok" || !np.info) {
-                        hideStage();
-                        lastSongId = null;
+                    if (songId === lastSongId) {
+                        showStage();
                         return;
                     }
+                    lastSongId = songId;
 
-                    const info = np.info;
-                    const isPlaying = !!(playing && playing.is_playing);
+                    art.classList.add("swap");
+                    titleEl.classList.add("swap");
+                    artistEl.classList.add("swap");
 
-                    // Build a stable identifier for the current track
-                    const songId =
-                        info.playParams && info.playParams.id
-                            ? info.playParams.id
-                            : info.name + "|" + info.artistName;
-
-                    // ===== Track changed: crossfade =====
-                    if (songId !== lastSongId) {
-                        // Quick fade-out
-                        art.classList.add("swap");
-                        titleEl.classList.add("swap");
-                        artistEl.classList.add("swap");
-
-                        // Wait for fade, then swap content + fade back in
-                        setTimeout(() => {
-                            const artUrl = resolveArtworkUrl(
-                                info.artwork && info.artwork.url,
-                                ART_SIZE,
-                            );
+                    setTimeout(() => {
+                        const artUrl = resolveArtworkUrl(
+                            info.artwork && info.artwork.url,
+                            ART_SIZE,
+                        );
+                        if (artUrl) {
                             art.src = artUrl;
                             bg.style.backgroundImage = `url("${artUrl}")`;
-                            titleEl.textContent = info.name || "—";
-                            artistEl.textContent = info.artistName || "—";
+                        }
+                        titleEl.textContent = info.name || "—";
+                        artistEl.textContent = info.artistName || "—";
 
-                            // Fade back in (next frame so the browser sees the change)
-                            requestAnimationFrame(() => {
-                                art.classList.remove("swap");
-                                titleEl.classList.remove("swap");
-                                artistEl.classList.remove("swap");
-                            });
-                        }, 350);
+                        requestAnimationFrame(() => {
+                            art.classList.remove("swap");
+                            titleEl.classList.remove("swap");
+                            artistEl.classList.remove("swap");
+                        });
+                    }, 350);
 
-                        lastSongId = songId;
-                        showStage();
-                    } else {
-                        // Same song — just make sure we're visible
-                        showStage();
-                    }
+                    showStage();
+                }
 
-                    // ===== Play/Pause state =====
-                    if (isPlaying !== lastWasPlaying) {
-                        setPaused(!isPlaying);
-                        lastWasPlaying = isPlaying;
-                    }
-
-                    // ===== Progress bar =====
-                    const totalSec = (info.durationInMillis || 0) / 1000;
-                    const currentSec = info.currentPlaybackTime || 0;
+                function applyProgress(data) {
+                    // Cider sends currentPlaybackDuration in seconds via socket events
+                    const totalSec =
+                        data.currentPlaybackDuration ||
+                        (data.durationInMillis || 0) / 1000 ||
+                        0;
+                    const currentSec = data.currentPlaybackTime || 0;
                     const pct =
                         totalSec > 0
                             ? Math.min(100, (currentSec / totalSec) * 100)
@@ -495,9 +437,36 @@
                     durationEl.textContent = formatTime(totalSec);
                 }
 
-                // Kick off — poll forever
-                tick();
-                setInterval(tick, POLL_MS);
+                const cider = io(CIDER_HOST, { transports: ["websocket"] });
+
+                cider.on("API:Playback", ({ data, type }) => {
+                    switch (type) {
+                        case "playbackStatus.nowPlayingItemDidChange":
+                            applyTrack(data);
+                            setPaused(false);
+                            break;
+                        case "playbackStatus.playbackTimeDidChange":
+                            applyProgress(data);
+                            break;
+                        case "playbackStatus.playbackStateDidChange":
+                            if (data.state === "playing") {
+                                setPaused(false);
+                                if (data.attributes) applyTrack(data.attributes);
+                                else showStage();
+                            } else if (data.state === "paused") {
+                                setPaused(true);
+                            } else if (data.state === "stopped") {
+                                hideStage();
+                                lastSongId = null;
+                            }
+                            break;
+                    }
+                });
+
+                cider.on("disconnect", () => {
+                    hideStage();
+                    lastSongId = null;
+                });
             })();
         </script>
     </body>
