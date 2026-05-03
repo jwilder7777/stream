@@ -23,15 +23,15 @@
 
             :root {
                 /* Edit these to taste */
-                --bar-width: 900px;
-                --bar-height: 220px;
-                --art-size: 180px;
-                --pad: 20px;
-                --radius: 18px;
-                --progress-height: 5px;
-                --upnext-height: 68px;
-                --upnext-gap: 12px;
-                --upnext-thumb-size: 50px;
+                --bar-width: 700px;
+                --bar-height: 260px;
+                --art-size: 220px;
+                --pad: 24px;
+                --radius: 20px;
+                --progress-height: 6px;
+                --upnext-height: 88px;
+                --upnext-gap: 14px;
+                --upnext-thumb-size: 64px;
 
                 /* Colors */
                 --text: #ffffff;
@@ -186,26 +186,26 @@
             .now-playing-label {
                 display: flex;
                 align-items: center;
-                gap: 10px;
+                gap: 12px;
                 font-family: "Inter", sans-serif;
-                font-size: 12px;
+                font-size: 14px;
                 font-weight: 600;
                 letter-spacing: 0.22em;
                 text-transform: uppercase;
                 color: var(--text-dim);
-                margin-bottom: 4px;
+                margin-bottom: 6px;
             }
 
             /* Animated equalizer bars next to "NOW PLAYING" */
             .eq {
                 display: inline-flex;
                 align-items: flex-end;
-                gap: 2px;
-                height: 11px;
+                gap: 3px;
+                height: 13px;
             }
             .eq span {
                 display: block;
-                width: 2px;
+                width: 3px;
                 background: #ffffff;
                 border-radius: 1px;
                 animation: eq 0.9s ease-in-out infinite;
@@ -243,7 +243,7 @@
 
             .title {
                 font-family: "Sora", sans-serif;
-                font-size: 32px;
+                font-size: 38px;
                 font-weight: 700;
                 line-height: 1.15;
                 color: var(--text);
@@ -268,7 +268,7 @@
 
             .artist {
                 font-family: "Inter", sans-serif;
-                font-size: 19px;
+                font-size: 22px;
                 font-weight: 400;
                 line-height: 1.2;
                 color: var(--text-dim);
@@ -369,14 +369,14 @@
                 height: 100%;
                 display: flex;
                 align-items: center;
-                gap: 12px;
-                padding: 0 16px 0 7px;
+                gap: 14px;
+                padding: 0 20px 0 10px;
             }
 
             .upnext-thumb {
                 width: var(--upnext-thumb-size);
                 height: var(--upnext-thumb-size);
-                border-radius: 6px;
+                border-radius: 8px;
                 background-size: cover;
                 background-position: center;
                 background-color: rgba(255, 255, 255, 0.06);
@@ -396,7 +396,7 @@
 
             .upnext-label {
                 font-family: "Inter", sans-serif;
-                font-size: 11px;
+                font-size: 13px;
                 font-weight: 700;
                 letter-spacing: 0.22em;
                 text-transform: uppercase;
@@ -409,7 +409,7 @@
                 flex: 1;
                 min-width: 0;
                 font-family: "Inter", sans-serif;
-                font-size: 16px;
+                font-size: 20px;
                 color: var(--text-dim);
                 white-space: nowrap;
                 overflow: hidden;
@@ -439,10 +439,10 @@
             /* Time markers, small and subtle */
             .times {
                 position: absolute;
-                bottom: 12px;
-                right: 18px;
+                bottom: 14px;
+                right: 22px;
                 font-family: "Inter", sans-serif;
-                font-size: 12px;
+                font-size: 14px;
                 font-weight: 500;
                 color: var(--text-dim);
                 letter-spacing: 0.04em;
